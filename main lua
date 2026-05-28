@@ -6,18 +6,14 @@ import "android.os.*"
 import "android.text.InputType"
 import "android.content.Intent"
 import "android.net.Uri"
-import "android.speech.tts.TextToSpeech"
-import "java.util.Locale"
 
 local NOTES_FILE = "/sdcard/Download/notes.txt"
 local CATEGORIES_FILE = "/sdcard/Download/categories.txt"
 local SAVE_FOLDER = "/storage/emulated/0/blind Tech hub/advance note creator"
 local notes = {}
-local categories = {"All", "Personal", "Work", "Study", "Other"}
+local categories = {"All", "Personal", "Work", "Study", "Other"} -- Default categories
 
-local tts = nil
-local ttsReady = false
-
+-- Create folder if not exists
 os.execute("mkdir -p " .. SAVE_FOLDER)
 
 function loadCategories()
@@ -31,6 +27,7 @@ function loadCategories()
     end
     file:close()
   else
+    -- Save default categories
     saveCategories()
   end
 end
@@ -85,17 +82,14 @@ function exportSingleNote(note, format, shareAfterSave)
   if file then
     file:write(content)
     file:close()
-    local msg = "Saved: " .. filePath
-    Toast.makeText(activity, msg, 0).show()
-    speak(msg)
+    Toast.makeText(activity, "Saved: " .. filePath, 0).show()
+    
     if shareAfterSave then
       shareFile(filePath)
     end
     return true
   else
-    local msg = "Export failed!"
-    Toast.makeText(activity, msg, 1).show()
-    speak(msg)
+    Toast.makeText(activity, "Export failed!", 1).show()
     return false
   end
 end
@@ -128,9 +122,7 @@ end
 
 function exportAllNotes()
   if #notes == 0 then
-    local msg = "No notes to export"
-    Toast.makeText(activity, msg, 1).show()
-    speak(msg)
+    Toast.makeText(activity, "No notes to export", 1).show()
     return
   end
   
@@ -167,9 +159,7 @@ function exportAllNotes()
       if file then
         file:write(allContent)
         file:close()
-        local msg = "Exported: " .. filePath
-        Toast.makeText(activity, msg, 0).show()
-        speak(msg)
+        Toast.makeText(activity, "Exported: " .. filePath, 0).show()
         AlertDialog.Builder(activity)
           .setTitle("Export Complete")
           .setMessage("File saved to:\n" .. filePath .. "\n\nShare now?")
@@ -179,9 +169,7 @@ function exportAllNotes()
           .setNegativeButton("OK", nil)
           .show()
       else
-        local msg = "Export failed!"
-        Toast.makeText(activity, msg, 1).show()
-        speak(msg)
+        Toast.makeText(activity, "Export failed!", 1).show()
       end
     end)
     .show()
@@ -189,9 +177,7 @@ end
 
 function deleteAllNotes()
   if #notes == 0 then
-    local msg = "No notes to delete"
-    Toast.makeText(activity, msg, 1).show()
-    speak(msg)
+    Toast.makeText(activity, "No notes to delete", 1).show()
     return
   end
   
@@ -202,9 +188,7 @@ function deleteAllNotes()
       notes = {}
       saveNotes()
       showMainLayout()
-      local msg = "All notes deleted"
-      Toast.makeText(activity, msg, 1).show()
-      speak(msg)
+      Toast.makeText(activity, "All notes deleted", 1).show()
     end)
     .setNegativeButton("Cancel", nil)
     .show()
@@ -213,9 +197,7 @@ end
 function refreshList()
   loadNotes()
   showMainLayout()
-  local msg = "Refreshed! Total: " .. #notes .. " notes"
-  Toast.makeText(activity, msg, 0).show()
-  speak(msg)
+  Toast.makeText(activity, "Refreshed! Total: " .. #notes .. " notes", 0).show()
 end
 
 function showMainMenu()
@@ -248,6 +230,7 @@ function manageCategories()
     .setTitle("Manage Categories")
     .setItems(catList, function(dialog, which)
       if which == #catList then
+        -- Add new category
         local input = EditText(activity)
         input.hint = "Enter category name"
         AlertDialog.Builder(activity)
@@ -258,25 +241,26 @@ function manageCategories()
             if newCat ~= "" then
               table.insert(categories, newCat)
               saveCategories()
-              local msg = "Category added"
-              Toast.makeText(activity, msg, 1).show()
-              speak(msg)
+              Toast.makeText(activity, "Category added", 1).show()
               showMainLayout()
             end
           end)
           .setNegativeButton("Cancel", nil)
           .show()
       else
+        -- Delete category option
         local selectedCat = catList[which]
         AlertDialog.Builder(activity)
           .setTitle("Delete Category?")
           .setMessage("Delete '" .. selectedCat .. "'? Notes in this category will become 'Other'.")
           .setPositiveButton("Delete", function()
+            -- Move notes to "Other"
             for i, note in ipairs(notes) do
               if note.category == selectedCat then
                 notes[i].category = "Other"
               end
             end
+            -- Remove category
             for i=2, #categories do
               if categories[i] == selectedCat then
                 table.remove(categories, i)
@@ -286,9 +270,7 @@ function manageCategories()
             saveCategories()
             saveNotes()
             showMainLayout()
-            local msg = "Category deleted"
-            Toast.makeText(activity, msg, 1).show()
-            speak(msg)
+            Toast.makeText(activity, "Category deleted", 1).show()
           end)
           .setNegativeButton("Cancel", nil)
           .show()
@@ -317,9 +299,7 @@ function showNoteOptions(index)
           .setPositiveButton("Yes", function()
             table.remove(notes, index)
             saveNotes()
-            local msg = "Note deleted"
-            Toast.makeText(activity, msg, 1).show()
-            speak(msg)
+            Toast.makeText(activity, "Note deleted", 1).show()
             showMainLayout()
           end)
           .setNegativeButton("No", nil)
@@ -361,6 +341,7 @@ function showNewNoteDialog()
   
   local dialogView = loadlayout(addLayout)
   
+  -- Populate spinner with categories (skip "All")
   local catList = {}
   for i=2, #categories do
     table.insert(catList, categories[i])
@@ -381,13 +362,9 @@ function showNewNoteDialog()
         table.insert(notes, {time = time, category = cat, title = title, content = content})
         saveNotes()
         showMainLayout()
-        local msg = "Note saved"
-        Toast.makeText(activity, msg, 1).show()
-        speak(msg)
+        Toast.makeText(activity, "Note saved", 1).show()
       else
-        local msg = "Please fill both fields"
-        Toast.makeText(activity, msg, 1).show()
-        speak(msg)
+        Toast.makeText(activity, "Please fill both fields", 1).show()
       end
     end)
     .setNegativeButton("Cancel", nil)
@@ -425,7 +402,7 @@ function showMainLayout()
         textColor = "#ffffff",
         layout_width = "56dp",
         layout_height = "56dp",
-        contentDescription = "Menu"
+        contentDescription = "Menu"  -- For screen reader announcement
       }
     },
     {
@@ -459,6 +436,7 @@ function showMainLayout()
 
   activity.setContentView(loadlayout(layout))
   
+  -- Setup category filter spinner
   local filterAdapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, categories)
   filterAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
   categoryFilter.setAdapter(filterAdapter)
@@ -474,6 +452,7 @@ function showMainLayout()
     noteList.setAdapter(adapter)
   end
   
+  -- Initial update with "All"
   updateList("All")
   
   categoryFilter.onItemSelected = function(parent, view, position, id)
@@ -482,6 +461,7 @@ function showMainLayout()
   end
 
   noteList.onItemClick = function(l, v, p)
+    -- Find actual note index (filtered list)
     local selectedCat = categories[categoryFilter.getSelectedItemPosition()+1]
     local filteredNotes = {}
     for i, note in ipairs(notes) do
@@ -603,6 +583,7 @@ function showEditNote(index)
   
   local dialogView = loadlayout(editLayout)
   
+  -- Populate categories
   local catList = {}
   for i=2, #categories do
     table.insert(catList, categories[i])
@@ -610,6 +591,7 @@ function showEditNote(index)
   local adapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, catList)
   adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
   editCategory.setAdapter(adapter)
+  -- Set current category
   for i, cat in ipairs(catList) do
     if cat == note.category then
       editCategory.setSelection(i-1)
@@ -629,50 +611,17 @@ function showEditNote(index)
         notes[index].title = newTitle
         notes[index].content = newContent
         saveNotes()
-        local msg = "Note updated"
-        Toast.makeText(activity, msg, 1).show()
-        speak(msg)
+        Toast.makeText(activity, "Note updated", 1).show()
         showMainLayout()
       else
-        local msg = "Fields cannot be empty"
-        Toast.makeText(activity, msg, 1).show()
-        speak(msg)
+        Toast.makeText(activity, "Fields cannot be empty", 1).show()
       end
     end)
     .setNegativeButton("Cancel", nil)
     .show()
 end
 
-function speak(message)
-  if ttsReady and tts and message then
-    tts:speak(message, TextToSpeech.QUEUE_FLUSH, nil)
-  end
-end
-
--- ========== FIXED TTS INITIALIZATION ==========
-tts = TextToSpeech(activity, { onInit = function(status)
-  if status == TextToSpeech.SUCCESS then
-    ttsReady = true
-    -- Language setting removed to avoid the error.
-    -- TTS will use the device's default language automatically.
-  else
-    ttsReady = false
-  end
-end })
--- ==============================================
-
-if activity.onDestroy then
-  local oldDestroy = activity.onDestroy
-  activity.onDestroy = function()
-    if tts then tts:shutdown() end
-    if oldDestroy then oldDestroy() end
-  end
-else
-  activity.onDestroy = function()
-    if tts then tts:shutdown() end
-  end
-end
-
+-- Start
 loadCategories()
 loadNotes()
 showMainLayout()
