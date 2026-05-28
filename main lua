@@ -7,14 +7,24 @@ import "android.text.InputType"
 import "android.content.Intent"
 import "android.net.Uri"
 
+-- Helper trim function (works on Lua strings)
+local function trim(str)
+  if str then
+    return str:match("^%s*(.-)%s*$")
+  end
+  return ""
+end
+
 local NOTES_FILE = "/sdcard/Download/notes.txt"
 local CATEGORIES_FILE = "/sdcard/Download/categories.txt"
 local SAVE_FOLDER = "/storage/emulated/0/blind Tech hub/advance note creator"
 local notes = {}
-local categories = {"All", "Personal", "Work", "Study", "Other"} -- Default categories
+local categories = {"All", "Personal", "Work", "Study", "Other", "Shopping", "Ideas", "Important"}
 
--- Create folder if not exists
 os.execute("mkdir -p " .. SAVE_FOLDER)
+
+local MATCH_PARENT = -1
+local WRAP_CONTENT = -2
 
 function loadCategories()
   local file = io.open(CATEGORIES_FILE, "r")
@@ -27,7 +37,6 @@ function loadCategories()
     end
     file:close()
   else
-    -- Save default categories
     saveCategories()
   end
 end
@@ -83,7 +92,6 @@ function exportSingleNote(note, format, shareAfterSave)
     file:write(content)
     file:close()
     Toast.makeText(activity, "Saved: " .. filePath, 0).show()
-    
     if shareAfterSave then
       shareFile(filePath)
     end
@@ -230,14 +238,13 @@ function manageCategories()
     .setTitle("Manage Categories")
     .setItems(catList, function(dialog, which)
       if which == #catList then
-        -- Add new category
         local input = EditText(activity)
         input.hint = "Enter category name"
         AlertDialog.Builder(activity)
           .setTitle("New Category")
           .setView(input)
           .setPositiveButton("Add", function()
-            local newCat = input.Text:trim()
+            local newCat = trim(input.Text)
             if newCat ~= "" then
               table.insert(categories, newCat)
               saveCategories()
@@ -248,19 +255,16 @@ function manageCategories()
           .setNegativeButton("Cancel", nil)
           .show()
       else
-        -- Delete category option
         local selectedCat = catList[which]
         AlertDialog.Builder(activity)
           .setTitle("Delete Category?")
           .setMessage("Delete '" .. selectedCat .. "'? Notes in this category will become 'Other'.")
           .setPositiveButton("Delete", function()
-            -- Move notes to "Other"
             for i, note in ipairs(notes) do
               if note.category == selectedCat then
                 notes[i].category = "Other"
               end
             end
-            -- Remove category
             for i=2, #categories do
               if categories[i] == selectedCat then
                 table.remove(categories, i)
@@ -310,6 +314,20 @@ function showNoteOptions(index)
 end
 
 function showNewNoteDialog()
+  local choices = {"Note", "List"}
+  AlertDialog.Builder(activity)
+    .setTitle("What do you want to create?")
+    .setItems(choices, function(dialog, which)
+      if which == 0 then
+        showNewNoteDialogRegular()
+      else
+        showNewListDialog()
+      end
+    end)
+    .show()
+end
+
+function showNewNoteDialogRegular()
   local addLayout = {
     LinearLayout,
     orientation = "vertical",
@@ -340,8 +358,10 @@ function showNewNoteDialog()
   }
   
   local dialogView = loadlayout(addLayout)
+  local categorySpinner = dialogView.categorySpinner
+  local titleInput = dialogView.titleInput
+  local contentInput = dialogView.contentInput
   
-  -- Populate spinner with categories (skip "All")
   local catList = {}
   for i=2, #categories do
     table.insert(catList, categories[i])
@@ -355,8 +375,8 @@ function showNewNoteDialog()
     .setView(dialogView)
     .setPositiveButton("Save", function()
       local cat = catList[categorySpinner.getSelectedItemPosition()+1] or "Other"
-      local title = titleInput.Text
-      local content = contentInput.Text
+      local title = trim(titleInput.Text)
+      local content = trim(contentInput.Text)
       if title ~= "" and content ~= "" then
         local time = os.date("%Y-%m-%d %H:%M:%S")
         table.insert(notes, {time = time, category = cat, title = title, content = content})
@@ -370,6 +390,142 @@ function showNewNoteDialog()
     .setNegativeButton("Cancel", nil)
     .show()
 end
+
+-- ========== RELIABLE LIST CREATION ==========
+function showNewListDialog()
+  local dlgBuilder = AlertDialog.Builder(activity)
+  dlgBuilder.setTitle("Create Checklist")
+  
+  local scroll = ScrollView(activity)
+  local main = LinearLayout(activity)
+  main.setOrientation(LinearLayout.VERTICAL)
+  main.setPadding(16, 16, 16, 16)
+  
+  -- Category spinner
+  local catSpinner = Spinner(activity)
+  local catList = {}
+  for i=2, #categories do table.insert(catList, categories[i]) end
+  local catAdapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, catList)
+  catAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+  catSpinner.setAdapter(catAdapter)
+  main.addView(catSpinner)
+  
+  -- Title input
+  local titleEdit = EditText(activity)
+  titleEdit.setHint("List Title")
+  titleEdit.setTextSize(18)
+  main.addView(titleEdit)
+  
+  -- Label
+  local lbl = TextView(activity)
+  lbl.setText("Items:")
+  lbl.setTextSize(16)
+  lbl.setPadding(0, 8, 0, 4)
+  main.addView(lbl)
+  
+  -- Container for dynamic items
+  local itemsContainer = LinearLayout(activity)
+  itemsContainer.setOrientation(LinearLayout.VERTICAL)
+  main.addView(itemsContainer)
+  
+  local itemEdits = {}
+  
+  local function addItemRow()
+    local row = LinearLayout(activity)
+    row.setOrientation(LinearLayout.HORIZONTAL)
+    row.setLayoutParams(LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+    row.setPadding(0, 4, 0, 4)
+    
+    local edit = EditText(activity)
+    edit.setHint("Item " .. (#itemEdits + 1))
+    edit.setLayoutParams(LinearLayout.LayoutParams(0, WRAP_CONTENT, 1))
+    edit.setTextSize(16)
+    
+    local removeBtn = Button(activity)
+    removeBtn.setText("✖")
+    removeBtn.setTextSize(18)
+    removeBtn.setBackgroundColor(0xFFFF0000)
+    removeBtn.setTextColor(0xFFFFFFFF)
+    removeBtn.setPadding(8, 4, 8, 4)
+    
+    row.addView(edit)
+    row.addView(removeBtn)
+    itemsContainer.addView(row)
+    
+    local idx = #itemEdits + 1
+    table.insert(itemEdits, edit)
+    
+    removeBtn.onClick = function()
+      itemsContainer.removeView(row)
+      table.remove(itemEdits, idx)
+      for i, ed in ipairs(itemEdits) do
+        ed.setHint("Item " .. i)
+      end
+    end
+  end
+  
+  -- First item
+  addItemRow()
+  
+  -- Add item button
+  local addBtn = Button(activity)
+  addBtn.setText("+ Add Item")
+  addBtn.setBackgroundColor(0xFF4CAF50)
+  addBtn.setTextColor(0xFFFFFFFF)
+  addBtn.setPadding(12, 8, 12, 8)
+  addBtn.onClick = function() addItemRow() end
+  main.addView(addBtn)
+  
+  -- Save button (custom)
+  local saveBtn = Button(activity)
+  saveBtn.setText("Save List")
+  saveBtn.setBackgroundColor(0xFF2196F3)
+  saveBtn.setTextColor(0xFFFFFFFF)
+  saveBtn.setPadding(12, 8, 12, 8)
+  saveBtn.setLayoutParams(LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+  main.addView(saveBtn)
+  
+  scroll.addView(main)
+  dlgBuilder.setView(scroll)
+  dlgBuilder.setNegativeButton("Cancel", nil)
+  
+  local dialog = dlgBuilder.show()
+  
+  saveBtn.onClick = function()
+    local cat = catList[catSpinner.getSelectedItemPosition()+1] or "Other"
+    local title = trim(titleEdit.Text)
+    if title == "" then
+      Toast.makeText(activity, "Please enter a title", 1).show()
+      return
+    end
+    
+    local items = {}
+    for _, ed in ipairs(itemEdits) do
+      local txt = trim(ed.Text)
+      if txt ~= "" then
+        table.insert(items, txt)
+      end
+    end
+    
+    if #items == 0 then
+      Toast.makeText(activity, "Please add at least one item", 1).show()
+      return
+    end
+    
+    local content = ""
+    for i, it in ipairs(items) do
+      content = content .. i .. ". " .. it .. "\n"
+    end
+    
+    local time = os.date("%Y-%m-%d %H:%M:%S")
+    table.insert(notes, {time = time, category = cat, title = title, content = content})
+    saveNotes()
+    showMainLayout()
+    Toast.makeText(activity, "List saved", 1).show()
+    dialog.dismiss()
+  end
+end
+-- ========================================
 
 function showMainLayout()
   layout = {
@@ -396,13 +552,13 @@ function showMainLayout()
       {
         Button,
         id = "menuBtn",
-        text = "â‹®",
+        text = "⋮",
         textSize = "28sp",
         background = "#3F51B5",
         textColor = "#ffffff",
         layout_width = "56dp",
         layout_height = "56dp",
-        contentDescription = "Menu"  -- For screen reader announcement
+        contentDescription = "Menu"
       }
     },
     {
@@ -436,7 +592,6 @@ function showMainLayout()
 
   activity.setContentView(loadlayout(layout))
   
-  -- Setup category filter spinner
   local filterAdapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, categories)
   filterAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
   categoryFilter.setAdapter(filterAdapter)
@@ -452,7 +607,6 @@ function showMainLayout()
     noteList.setAdapter(adapter)
   end
   
-  -- Initial update with "All"
   updateList("All")
   
   categoryFilter.onItemSelected = function(parent, view, position, id)
@@ -461,7 +615,6 @@ function showMainLayout()
   end
 
   noteList.onItemClick = function(l, v, p)
-    -- Find actual note index (filtered list)
     local selectedCat = categories[categoryFilter.getSelectedItemPosition()+1]
     local filteredNotes = {}
     for i, note in ipairs(notes) do
@@ -509,20 +662,20 @@ function showNoteReadOnly(index)
       padding = "16dp",
       {
         TextView,
-        text = "ðŸ“ " .. note.category,
+        text = "📁 " .. note.category,
         textSize = "14sp",
         textColor = "#FF9800",
         paddingBottom = "8dp"
       },
       {
         TextView,
-        text = "ðŸ“Œ " .. note.title,
+        text = "📌 " .. note.title,
         textSize = "22sp",
         textColor = "#3F51B5"
       },
       {
         TextView,
-        text = "ðŸ• " .. note.time,
+        text = "🕐 " .. note.time,
         textSize = "14sp",
         textColor = "#666666",
         paddingBottom = "16dp"
@@ -582,8 +735,10 @@ function showEditNote(index)
   }
   
   local dialogView = loadlayout(editLayout)
+  local editCategory = dialogView.editCategory
+  local editTitle = dialogView.editTitle
+  local editContent = dialogView.editContent
   
-  -- Populate categories
   local catList = {}
   for i=2, #categories do
     table.insert(catList, categories[i])
@@ -591,7 +746,6 @@ function showEditNote(index)
   local adapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, catList)
   adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
   editCategory.setAdapter(adapter)
-  -- Set current category
   for i, cat in ipairs(catList) do
     if cat == note.category then
       editCategory.setSelection(i-1)
@@ -604,8 +758,8 @@ function showEditNote(index)
     .setView(dialogView)
     .setPositiveButton("Save", function()
       local newCat = catList[editCategory.getSelectedItemPosition()+1]
-      local newTitle = editTitle.Text
-      local newContent = editContent.Text
+      local newTitle = trim(editTitle.Text)
+      local newContent = trim(editContent.Text)
       if newTitle ~= "" and newContent ~= "" then
         notes[index].category = newCat
         notes[index].title = newTitle
@@ -621,7 +775,6 @@ function showEditNote(index)
     .show()
 end
 
--- Start
 loadCategories()
 loadNotes()
 showMainLayout()
