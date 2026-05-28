@@ -1,0 +1,627 @@
+require "import"
+import "android.widget.*"
+import "android.app.*"
+import "android.view.*"
+import "android.os.*"
+import "android.text.InputType"
+import "android.content.Intent"
+import "android.net.Uri"
+
+local NOTES_FILE = "/sdcard/Download/notes.txt"
+local CATEGORIES_FILE = "/sdcard/Download/categories.txt"
+local SAVE_FOLDER = "/storage/emulated/0/blind Tech hub/advance note creator"
+local notes = {}
+local categories = {"All", "Personal", "Work", "Study", "Other"} -- Default categories
+
+-- Create folder if not exists
+os.execute("mkdir -p " .. SAVE_FOLDER)
+
+function loadCategories()
+  local file = io.open(CATEGORIES_FILE, "r")
+  if file then
+    categories = {"All"}
+    for line in file:lines() do
+      if line ~= "" then
+        table.insert(categories, line)
+      end
+    end
+    file:close()
+  else
+    -- Save default categories
+    saveCategories()
+  end
+end
+
+function saveCategories()
+  local file = io.open(CATEGORIES_FILE, "w")
+  for i=2, #categories do
+    file:write(categories[i] .. "\n")
+  end
+  file:close()
+end
+
+function loadNotes()
+  notes = {}
+  local file = io.open(NOTES_FILE, "r")
+  if file then
+    for line in file:lines() do
+      local time, category, title, content = line:match("^(.-);(.-);(.-);(.*)$")
+      if time and category and title and content then
+        table.insert(notes, {time = time, category = category, title = title, content = content})
+      end
+    end
+    file:close()
+  end
+end
+
+function saveNotes()
+  local file = io.open(NOTES_FILE, "w")
+  for _, note in ipairs(notes) do
+    file:write(note.time .. ";" .. note.category .. ";" .. note.title .. ";" .. note.content .. "\n")
+  end
+  file:close()
+end
+
+function exportSingleNote(note, format, shareAfterSave)
+  local fileName = note.title:gsub("[^%w]", "_") .. "_" .. os.time()
+  local filePath = SAVE_FOLDER .. "/" .. fileName
+  
+  local content = ""
+  if format == "txt" then
+    filePath = filePath .. ".txt"
+    content = "Category: " .. note.category .. "\nTitle: " .. note.title .. "\nTime: " .. note.time .. "\nContent:\n" .. note.content
+  elseif format == "html" then
+    filePath = filePath .. ".html"
+    content = [[<html><body><h1>]] .. note.title .. [[</h1><p><b>Category:</b> ]] .. note.category .. [[</p><p><b>Time:</b> ]] .. note.time .. [[</p><p><b>Content:</b><br/>]] .. note.content:gsub("\n", "<br/>") .. [[</p></body></html>]]
+  else
+    filePath = filePath .. ".md"
+    content = "# " .. note.title .. "\n\n**Category:** " .. note.category .. "\n**Time:** " .. note.time .. "\n\n**Content:**\n" .. note.content
+  end
+  
+  local file = io.open(filePath, "w")
+  if file then
+    file:write(content)
+    file:close()
+    Toast.makeText(activity, "Saved: " .. filePath, 0).show()
+    
+    if shareAfterSave then
+      shareFile(filePath)
+    end
+    return true
+  else
+    Toast.makeText(activity, "Export failed!", 1).show()
+    return false
+  end
+end
+
+function shareFile(filePath)
+  local intent = Intent(Intent.ACTION_SEND)
+  intent.setType("text/plain")
+  intent.putExtra(Intent.EXTRA_STREAM, Uri.parse("file://" .. filePath))
+  activity.startActivity(Intent.createChooser(intent, "Share via"))
+end
+
+function showFormatDialog(note, callbackType)
+  local formats = {"TXT", "HTML", "MARKDOWN"}
+  AlertDialog.Builder(activity)
+    .setTitle("Select Export Format")
+    .setItems(formats, function(dialog, which)
+      local format = "txt"
+      if which == 0 then format = "txt"
+      elseif which == 1 then format = "html"
+      else format = "md" end
+      
+      if callbackType == "export" then
+        exportSingleNote(note, format, false)
+      elseif callbackType == "share" then
+        exportSingleNote(note, format, true)
+      end
+    end)
+    .show()
+end
+
+function exportAllNotes()
+  if #notes == 0 then
+    Toast.makeText(activity, "No notes to export", 1).show()
+    return
+  end
+  
+  local formats = {"TXT", "HTML", "MARKDOWN"}
+  AlertDialog.Builder(activity)
+    .setTitle("Export All Notes - Select Format")
+    .setItems(formats, function(dialog, which)
+      local ext = "txt"
+      local separator = "\n" .. string.rep("=", 50) .. "\n"
+      local allContent = ""
+      
+      if which == 0 then ext = "txt"
+      elseif which == 1 then ext = "html"
+      else ext = "md" end
+      
+      local fileName = "All_Notes_" .. os.date("%Y%m%d_%H%M%S") .. "." .. ext
+      local filePath = SAVE_FOLDER .. "/" .. fileName
+      
+      for i, note in ipairs(notes) do
+        if which == 0 then
+          allContent = allContent .. "Category: " .. note.category .. "\nTitle: " .. note.title .. "\nTime: " .. note.time .. "\nContent:\n" .. note.content .. separator
+        elseif which == 1 then
+          allContent = allContent .. [[<hr/><h2>]] .. note.title .. [[</h2><p><b>Category:</b> ]] .. note.category .. [[</p><p><b>Time:</b> ]] .. note.time .. [[</p><p><b>Content:</b><br/>]] .. note.content:gsub("\n", "<br/>") .. [[</p>]]
+        else
+          allContent = allContent .. "## " .. note.title .. "\n\n**Category:** " .. note.category .. "\n**Time:** " .. note.time .. "\n\n**Content:**\n" .. note.content .. "\n\n---\n\n"
+        end
+      end
+      
+      if which == 1 then
+        allContent = "<html><body>" .. allContent .. "</body></html>"
+      end
+      
+      local file = io.open(filePath, "w")
+      if file then
+        file:write(allContent)
+        file:close()
+        Toast.makeText(activity, "Exported: " .. filePath, 0).show()
+        AlertDialog.Builder(activity)
+          .setTitle("Export Complete")
+          .setMessage("File saved to:\n" .. filePath .. "\n\nShare now?")
+          .setPositiveButton("Share", function()
+            shareFile(filePath)
+          end)
+          .setNegativeButton("OK", nil)
+          .show()
+      else
+        Toast.makeText(activity, "Export failed!", 1).show()
+      end
+    end)
+    .show()
+end
+
+function deleteAllNotes()
+  if #notes == 0 then
+    Toast.makeText(activity, "No notes to delete", 1).show()
+    return
+  end
+  
+  AlertDialog.Builder(activity)
+    .setTitle("Delete All Notes")
+    .setMessage("Are you sure you want to delete ALL notes?\nThis action cannot be undone!")
+    .setPositiveButton("Yes, Delete All", function()
+      notes = {}
+      saveNotes()
+      showMainLayout()
+      Toast.makeText(activity, "All notes deleted", 1).show()
+    end)
+    .setNegativeButton("Cancel", nil)
+    .show()
+end
+
+function refreshList()
+  loadNotes()
+  showMainLayout()
+  Toast.makeText(activity, "Refreshed! Total: " .. #notes .. " notes", 0).show()
+end
+
+function showMainMenu()
+  local menuOptions = {"Export All", "Refresh", "Delete All", "Manage Categories"}
+  
+  AlertDialog.Builder(activity)
+    .setTitle("Menu")
+    .setItems(menuOptions, function(dialog, which)
+      if which == 0 then
+        exportAllNotes()
+      elseif which == 1 then
+        refreshList()
+      elseif which == 2 then
+        deleteAllNotes()
+      elseif which == 3 then
+        manageCategories()
+      end
+    end)
+    .show()
+end
+
+function manageCategories()
+  local catList = {}
+  for i=2, #categories do
+    table.insert(catList, categories[i])
+  end
+  table.insert(catList, "+ Add New Category")
+  
+  AlertDialog.Builder(activity)
+    .setTitle("Manage Categories")
+    .setItems(catList, function(dialog, which)
+      if which == #catList then
+        -- Add new category
+        local input = EditText(activity)
+        input.hint = "Enter category name"
+        AlertDialog.Builder(activity)
+          .setTitle("New Category")
+          .setView(input)
+          .setPositiveButton("Add", function()
+            local newCat = input.Text:trim()
+            if newCat ~= "" then
+              table.insert(categories, newCat)
+              saveCategories()
+              Toast.makeText(activity, "Category added", 1).show()
+              showMainLayout()
+            end
+          end)
+          .setNegativeButton("Cancel", nil)
+          .show()
+      else
+        -- Delete category option
+        local selectedCat = catList[which]
+        AlertDialog.Builder(activity)
+          .setTitle("Delete Category?")
+          .setMessage("Delete '" .. selectedCat .. "'? Notes in this category will become 'Other'.")
+          .setPositiveButton("Delete", function()
+            -- Move notes to "Other"
+            for i, note in ipairs(notes) do
+              if note.category == selectedCat then
+                notes[i].category = "Other"
+              end
+            end
+            -- Remove category
+            for i=2, #categories do
+              if categories[i] == selectedCat then
+                table.remove(categories, i)
+                break
+              end
+            end
+            saveCategories()
+            saveNotes()
+            showMainLayout()
+            Toast.makeText(activity, "Category deleted", 1).show()
+          end)
+          .setNegativeButton("Cancel", nil)
+          .show()
+      end
+    end)
+    .show()
+end
+
+function showNoteOptions(index)
+  local note = notes[index]
+  local options = {"Edit", "Export File", "Share", "Delete"}
+  
+  AlertDialog.Builder(activity)
+    .setTitle("Options for: " .. note.title)
+    .setItems(options, function(dialog, which)
+      if which == 0 then
+        showEditNote(index)
+      elseif which == 1 then
+        showFormatDialog(note, "export")
+      elseif which == 2 then
+        showFormatDialog(note, "share")
+      elseif which == 3 then
+        AlertDialog.Builder(activity)
+          .setTitle("Confirm Delete")
+          .setMessage("Delete this note?")
+          .setPositiveButton("Yes", function()
+            table.remove(notes, index)
+            saveNotes()
+            Toast.makeText(activity, "Note deleted", 1).show()
+            showMainLayout()
+          end)
+          .setNegativeButton("No", nil)
+          .show()
+      end
+    end)
+    .show()
+end
+
+function showNewNoteDialog()
+  local addLayout = {
+    LinearLayout,
+    orientation = "vertical",
+    padding = "16dp",
+    {
+      Spinner,
+      id = "categorySpinner",
+      layout_width = "match_parent",
+      layout_height = "wrap_content",
+      prompt = "Select Category"
+    },
+    {
+      EditText,
+      id = "titleInput",
+      hint = "Title",
+      layout_width = "match_parent",
+      textSize = "18sp"
+    },
+    {
+      EditText,
+      id = "contentInput",
+      hint = "Content",
+      layout_width = "match_parent",
+      layout_height = "200dp",
+      gravity = "top",
+      textSize = "16sp"
+    }
+  }
+  
+  local dialogView = loadlayout(addLayout)
+  
+  -- Populate spinner with categories (skip "All")
+  local catList = {}
+  for i=2, #categories do
+    table.insert(catList, categories[i])
+  end
+  local adapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, catList)
+  adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+  categorySpinner.setAdapter(adapter)
+
+  AlertDialog.Builder(activity)
+    .setTitle("New Note")
+    .setView(dialogView)
+    .setPositiveButton("Save", function()
+      local cat = catList[categorySpinner.getSelectedItemPosition()+1] or "Other"
+      local title = titleInput.Text
+      local content = contentInput.Text
+      if title ~= "" and content ~= "" then
+        local time = os.date("%Y-%m-%d %H:%M:%S")
+        table.insert(notes, {time = time, category = cat, title = title, content = content})
+        saveNotes()
+        showMainLayout()
+        Toast.makeText(activity, "Note saved", 1).show()
+      else
+        Toast.makeText(activity, "Please fill both fields", 1).show()
+      end
+    end)
+    .setNegativeButton("Cancel", nil)
+    .show()
+end
+
+function showMainLayout()
+  layout = {
+    LinearLayout,
+    orientation = "vertical",
+    layout_width = "match_parent",
+    layout_height = "match_parent",
+    {
+      LinearLayout,
+      orientation = "horizontal",
+      layout_width = "match_parent",
+      layout_height = "wrap_content",
+      background = "#3F51B5",
+      {
+        TextView,
+        text = "Advance Note Creator",
+        textSize = "20sp",
+        gravity = "center",
+        textColor = "#ffffff",
+        padding = "16dp",
+        layout_width = "0dp",
+        layout_weight = "1"
+      },
+      {
+        Button,
+        id = "menuBtn",
+        text = "â‹®",
+        textSize = "28sp",
+        background = "#3F51B5",
+        textColor = "#ffffff",
+        layout_width = "56dp",
+        layout_height = "56dp",
+        contentDescription = "Menu"  -- For screen reader announcement
+      }
+    },
+    {
+      Spinner,
+      id = "categoryFilter",
+      layout_width = "match_parent",
+      layout_height = "wrap_content",
+      prompt = "Filter by Category",
+      background = "#ffffff",
+      padding = "8dp"
+    },
+    {
+      ListView,
+      id = "noteList",
+      layout_width = "match_parent",
+      layout_height = "0dp",
+      layout_weight = "1"
+    },
+    {
+      Button,
+      id = "btnAdd",
+      text = "+ New Note",
+      textSize = "18sp",
+      background = "#4CAF50",
+      textColor = "#ffffff",
+      padding = "16dp",
+      layout_width = "match_parent",
+      layout_height = "wrap_content"
+    }
+  }
+
+  activity.setContentView(loadlayout(layout))
+  
+  -- Setup category filter spinner
+  local filterAdapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, categories)
+  filterAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+  categoryFilter.setAdapter(filterAdapter)
+  
+  function updateList(selectedCategory)
+    local items = {}
+    for i, note in ipairs(notes) do
+      if selectedCategory == "All" or note.category == selectedCategory then
+        table.insert(items, note.title)
+      end
+    end
+    local adapter = ArrayAdapter(activity, android.R.layout.simple_list_item_1, items)
+    noteList.setAdapter(adapter)
+  end
+  
+  -- Initial update with "All"
+  updateList("All")
+  
+  categoryFilter.onItemSelected = function(parent, view, position, id)
+    local selected = categories[position+1]
+    updateList(selected)
+  end
+
+  noteList.onItemClick = function(l, v, p)
+    -- Find actual note index (filtered list)
+    local selectedCat = categories[categoryFilter.getSelectedItemPosition()+1]
+    local filteredNotes = {}
+    for i, note in ipairs(notes) do
+      if selectedCat == "All" or note.category == selectedCat then
+        table.insert(filteredNotes, i)
+      end
+    end
+    local realIndex = filteredNotes[p+1]
+    showNoteReadOnly(realIndex)
+  end
+  
+  noteList.setOnItemLongClickListener{
+    onItemLongClick = function(parent, view, position, id)
+      local selectedCat = categories[categoryFilter.getSelectedItemPosition()+1]
+      local filteredNotes = {}
+      for i, note in ipairs(notes) do
+        if selectedCat == "All" or note.category == selectedCat then
+          table.insert(filteredNotes, i)
+        end
+      end
+      local realIndex = filteredNotes[position+1]
+      showNoteOptions(realIndex)
+      return true
+    end
+  }
+
+  btnAdd.onClick = function()
+    showNewNoteDialog()
+  end
+  
+  menuBtn.onClick = function()
+    showMainMenu()
+  end
+end
+
+function showNoteReadOnly(index)
+  local note = notes[index]
+  local detailLayout = {
+    ScrollView,
+    layout_width = "match_parent",
+    layout_height = "match_parent",
+    {
+      LinearLayout,
+      orientation = "vertical",
+      padding = "16dp",
+      {
+        TextView,
+        text = "ðŸ“ " .. note.category,
+        textSize = "14sp",
+        textColor = "#FF9800",
+        paddingBottom = "8dp"
+      },
+      {
+        TextView,
+        text = "ðŸ“Œ " .. note.title,
+        textSize = "22sp",
+        textColor = "#3F51B5"
+      },
+      {
+        TextView,
+        text = "ðŸ• " .. note.time,
+        textSize = "14sp",
+        textColor = "#666666",
+        paddingBottom = "16dp"
+      },
+      {
+        TextView,
+        text = note.content,
+        textSize = "16sp",
+        paddingBottom = "24dp"
+      },
+      {
+        Button,
+        text = "Back",
+        layout_width = "match_parent",
+        background = "#9E9E9E",
+        textColor = "#ffffff",
+        onClick = function()
+          showMainLayout()
+        end
+      }
+    }
+  }
+
+  activity.setContentView(loadlayout(detailLayout))
+end
+
+function showEditNote(index)
+  local note = notes[index]
+  local editLayout = {
+    LinearLayout,
+    orientation = "vertical",
+    padding = "16dp",
+    {
+      Spinner,
+      id = "editCategory",
+      layout_width = "match_parent",
+      layout_height = "wrap_content"
+    },
+    {
+      EditText,
+      id = "editTitle",
+      hint = "Title",
+      text = note.title,
+      layout_width = "match_parent",
+      textSize = "18sp"
+    },
+    {
+      EditText,
+      id = "editContent",
+      hint = "Content",
+      text = note.content,
+      layout_width = "match_parent",
+      layout_height = "200dp",
+      gravity = "top",
+      textSize = "16sp"
+    }
+  }
+  
+  local dialogView = loadlayout(editLayout)
+  
+  -- Populate categories
+  local catList = {}
+  for i=2, #categories do
+    table.insert(catList, categories[i])
+  end
+  local adapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, catList)
+  adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+  editCategory.setAdapter(adapter)
+  -- Set current category
+  for i, cat in ipairs(catList) do
+    if cat == note.category then
+      editCategory.setSelection(i-1)
+      break
+    end
+  end
+
+  AlertDialog.Builder(activity)
+    .setTitle("Edit Note")
+    .setView(dialogView)
+    .setPositiveButton("Save", function()
+      local newCat = catList[editCategory.getSelectedItemPosition()+1]
+      local newTitle = editTitle.Text
+      local newContent = editContent.Text
+      if newTitle ~= "" and newContent ~= "" then
+        notes[index].category = newCat
+        notes[index].title = newTitle
+        notes[index].content = newContent
+        saveNotes()
+        Toast.makeText(activity, "Note updated", 1).show()
+        showMainLayout()
+      else
+        Toast.makeText(activity, "Fields cannot be empty", 1).show()
+      end
+    end)
+    .setNegativeButton("Cancel", nil)
+    .show()
+end
+
+-- Start
+loadCategories()
+loadNotes()
+showMainLayout()
